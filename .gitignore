@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+venv/
+ENV/
+
+# Arquivos gerados em tempo de execução
+_backup/
+log-evidencias.csv
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+Desktop.ini

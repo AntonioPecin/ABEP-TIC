@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Evidências ABEP-TIC</title>
+  <!-- Mesmas fontes do Portal de BI da SETDIG (bi-setdig). Sem internet, cai na fonte do sistema. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+  <!-- Sidebar fixa (drawer no celular), como a do bi-setdig -->
+  <button id="btn-menu" type="button" class="btn-menu" aria-label="Abrir menu" aria-expanded="false">☰</button>
+  <div id="fundo-menu" class="fundo-menu" hidden></div>
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-logo">
+      <img src="img/logo-ms-horizontal.svg" alt="Governo de Mato Grosso do Sul">
+    </div>
+    <div class="sidebar-rolagem">
+      <nav id="menu" aria-label="Dimensões"></nav>
+      <div class="sidebar-filtros">
+        <label class="rotulo" for="ano">Ano da pesquisa</label>
+        <select id="ano" class="ds-select"></select>
+        <label class="checa"><input id="so-pendentes" type="checkbox"> Mostrar só o que falta</label>
+      </div>
+    </div>
+    <div class="sidebar-rodape">
+      <button id="btn-usuario" type="button" class="link"></button>
+    </div>
+  </aside>
+
+  <div class="conteudo">
+    <header class="topbar">
+      <div>
+        <h1 class="bi-display">Evidências ABEP-TIC</h1>
+        <p class="topbar-sub">Índice de Oferta de Serviços Públicos Digitais · <span id="pasta-atual"></span></p>
+      </div>
+      <button id="btn-atualizar" type="button" class="btn-claro" hidden>Atualizar</button>
+    </header>
+
+    <main class="principal">
+      <div id="aviso" class="aviso" hidden></div>
+      <section id="resumo" class="resumo" aria-label="Resumo"></section>
+      <div class="busca">
+        <input id="busca" type="search" class="ds-input" placeholder="Buscar indicador ou texto…" aria-label="Buscar indicador">
+      </div>
+      <div id="lista"></div>
+    </main>
+  </div>
+
+  <!-- Dados: um arquivo por ano. Ano novo = gerar dados/AAAA.js e adicionar uma linha aqui (ver ESTRUTURA-ABEP-TIC.md, seção 8). -->
+  <script src="dados/2026.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
