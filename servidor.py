@@ -136,6 +136,13 @@ class Painel(SimpleHTTPRequestHandler):
     def log_message(self, *a):  # silencioso
         pass
 
+    def end_headers(self):
+        # página, app.js e estilo.css: o navegador confere a versão a cada abertura (304 se não mudou), senão
+        # continua mostrando o painel antigo depois de uma atualização
+        if not self.path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     # ---------- utilidades ----------
     def caminho(self):
         """Caminho pedido em ?p=, sempre dentro da raiz (bloqueia ../)."""
