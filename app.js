@@ -13,6 +13,8 @@ const $ = (s) => document.querySelector(s);
 const RESPOSTA = 'resposta.json';
 const REGISTRO = 'log-evidencias.csv';
 const HASH_INICIAL = '0'.repeat(64);
+// ícone de lixeira (traço do Lucide "trash-2", o mesmo pacote de ícones do bi-setdig)
+const ICONE_LIXEIRA = '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
 // Indicador cujo texto de evidência começa assim não exige anexo ("Não é necessário...", "A UF não deverá enviar...")
 const SEM_EVIDENCIA = /^(\*\*)?(A UF )?n[ãa]o (é necessário|deverá enviar|é exigido)/i;
 
@@ -609,9 +611,12 @@ function blocoEvid(cod, item, links) {
     const autor = est.autores[`${cod}/${nome}`];
     const info = estado === 'novo' ? 'a enviar ao salvar' : estado === 'remover' ? 'será removido ao salvar'
       : autor ? `anexado por ${autor.por} em ${hora(autor.em)}` : '';
-    const botao = estado === 'novo' ? 'Tirar' : estado === 'remover' ? 'Manter' : 'Remover';
+    // lixeira vermelha remove (ou tira o anexo ainda não enviado); "Manter" desfaz uma remoção marcada
+    const botao = estado === 'remover' ? 'Manter'
+      : `<span class="sr">${estado === 'novo' ? 'Tirar' : 'Remover'} ${esc(nome)}</span>${ICONE_LIXEIRA}`;
     return `<li class="${estado}"><span><span class="nome-arq">${esc(nome)}</span>${info ? `<small>${esc(info)}</small>` : ''}</span>
-      <button type="button" class="link" data-acao="remover" data-nome="${esc(nome)}" data-estado="${estado}" ${dis}>${botao}</button></li>`;
+      <button type="button" class="${estado === 'remover' ? 'link' : 'lixeira'}" data-acao="remover" data-nome="${esc(nome)}" data-estado="${estado}"
+        ${estado === 'remover' ? '' : `title="${estado === 'novo' ? 'Tirar' : 'Remover'}"`} ${dis}>${botao}</button></li>`;
   }).join('');
   return `<div class="evid">
     <div class="soltar">Arraste arquivos aqui ou

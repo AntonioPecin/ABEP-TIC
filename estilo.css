@@ -225,6 +225,12 @@ fieldset.opcoes { border: 0; padding: 0; margin: 0 0 8px; }
 .arquivos li + li { border-top: 1px solid var(--bi-border); }
 .arquivos li:hover { background: var(--bi-bg-subdued); }
 .nome-arq { color: var(--bi-fg-accent); overflow-wrap: anywhere; }
+.lixeira {
+  position: relative; flex: none; width: 40px; min-height: 40px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid transparent; color: var(--bi-danger);
+}
+.lixeira:hover:not(:disabled) { background: #fdecee; border-color: #f4c2ca; color: var(--bi-danger); }
+.lixeira:focus-visible { outline-color: var(--bi-danger); }
 .arquivos li small { display: block; color: var(--bi-fg-subdued); font-size: .8125rem; }
 .arquivos li.novo .nome-arq { color: var(--ds-color-primary-600); font-weight: 600; }
 .arquivos li.remover .nome-arq { text-decoration: line-through; color: var(--bi-fg-subdued); }
