@@ -15,7 +15,11 @@ escolhida por quem usa.
      preta e não abre. Para testar em outra pasta:
      `abrir-painel.bat "C:\caminho\da\pasta-de-teste"`.
    - Abrir o `index.html` direto não funciona: o acesso à pasta da rede é feito pelo `servidor.py`.
-2. O botão **Atualizar** lê a pasta de novo, por exemplo para ver o que outra pessoa salvou.
+2. A página confere a pasta sozinha a cada 30 segundos (`intervalo_segundos` no `config.json`, mínimo 5). Se alguém
+   anexou, apagou ou salvou algo (pelo painel ou direto pelo Windows), ela relê a pasta e avisa no topo, por exemplo:
+   "Pasta atualizada às 07:41 — entrou: 1.4 - Decreto.pdf; saiu: 1.3 - Antigo.pdf". As suas próprias alterações
+   não geram aviso. Enquanto você digita num campo, a conferência espera a próxima rodada. O botão **Atualizar**
+   continua para quem não quer esperar.
 3. Informe seu nome uma vez. Ele fica registrado em cada alteração.
 4. Abra um indicador, marque o que o Estado atende e anexe arquivos ou cole links.
 5. Cada item tem o próprio botão **Salvar**: o bloco "Evidências do indicador" (anexos, links e observação do

@@ -24,6 +24,8 @@ const est = {
   arquivos: {},        // codigo -> [nomes] na pasta
   autores: {},         // "codigo/arquivo" -> { por, em } (última linha "anexou" do log)
   logProblema: '',     // mensagem se o log foi adulterado (fica no topo até recarregar)
+  foto: null,          // { caminho no ano: data } da última leitura da pasta (vigia)
+  salvando: false,     // vigia espera enquanto um Salvar está gravando
   rascunho: {},        // codigo -> item -> { dados, novos: [{ nome, file }], remover: Set<nome> }
   dim: 0,
 };
@@ -205,7 +207,7 @@ async function lerRegistro() {
   let problema = await conferirLog(linhas);
   let ancora = null;
   try { ancora = JSON.parse(localStorage.getItem(chaveAncora()) || 'null'); } catch { /* sem storage */ }
-  if (!problema && ancora && (linhas.length < ancora.n || linhas[ancora.n - 1]?.[7] !== ancora.hash)) {
+  if (!problema && ancora && (linhas.length < ancora.n || (ancora.n > 0 && linhas[ancora.n - 1]?.[7] !== ancora.hash))) {
     problema = `o log tinha ${ancora.n} registros da última vez que esta página abriu e agora tem ${linhas.length}`;
   }
   est.logProblema = problema ? `Atenção: ${REGISTRO} foi modificado fora do painel (${problema}). Avise a coordenação.` : '';
@@ -281,7 +283,56 @@ async function lerIndicador(cod) {
 async function carregarTudo() {
   est.respostas = {}; est.arquivos = {};
   if (est.raiz) await Promise.all([lerRegistro(), ...todos().map((x) => lerIndicador(x.ind.codigo))]);
+  est.foto = await fotoDaPasta();
   render();
+}
+
+/* ---------- vigia da pasta ----------
+   A cada "intervalo_segundos" (config.json) pergunta ao servidor.py a lista de arquivos do ano com a data de cada um.
+   Se algo entrou, saiu ou mudou (outra pessoa salvou ou mexeu pelo Windows), relê a pasta e avisa, como o botão
+   Atualizar. As próprias alterações não geram aviso: depois de salvar, a "foto" é refeita. */
+async function fotoDaPasta() {
+  try { return await (await ok(await fetch(api('estado', String(est.ano))))).json(); } catch { return null; }
+}
+
+function descreverMudanca(antes, depois) {
+  const nome = (p) => p.split('/').pop();
+  const ehEvid = (p) => !/(^|\/)(resposta\.json|log-evidencias\.csv)$/.test(p);
+  const novos = Object.keys(depois).filter((p) => !(p in antes));
+  const removidos = Object.keys(antes).filter((p) => !(p in depois));
+  const alterados = Object.keys(depois).filter((p) => p in antes && antes[p] !== depois[p]);
+  if (!novos.length && !removidos.length && !alterados.length) return '';
+  const lista = (ps) => ps.slice(0, 3).map(nome).join(', ') + (ps.length > 3 ? ` e mais ${ps.length - 3}` : '');
+  const partes = [];
+  if (novos.some(ehEvid)) partes.push(`entrou: ${lista(novos.filter(ehEvid))}`);
+  if (removidos.some(ehEvid)) partes.push(`saiu: ${lista(removidos.filter(ehEvid))}`);
+  const salvos = [...new Set([...novos, ...alterados].filter((p) => p.endsWith('/resposta.json')).map((p) => p.split('/').at(-2)))];
+  if (salvos.length) partes.push(`indicadores salvos por outra pessoa: ${salvos.join(', ')}`);
+  return partes.length ? `Pasta atualizada às ${new Date().toLocaleTimeString('pt-BR', { timeStyle: 'short' })} — ${partes.join('; ')}.` : 'Pasta atualizada.';
+}
+
+/** Depois de salvar: a foto passa a conter o que eu gravei (pasta do indicador e log), mas o resto continua com a
+    foto antiga, para mudanças de outras pessoas ainda serem avisadas. */
+async function absorverMinhaMudanca(cod) {
+  const nova = await fotoDaPasta();
+  if (!nova || !est.foto) return;
+  const meu = (p) => p.startsWith(`Dimensao ${achar(cod).dim.id}/${cod}/`) || p === REGISTRO;
+  for (const p of Object.keys(est.foto)) if (meu(p) && !(p in nova)) delete est.foto[p];
+  for (const [p, v] of Object.entries(nova)) if (meu(p)) est.foto[p] = v;
+}
+
+function vigiar(segundos) {
+  setInterval(async () => {
+    if (!est.raiz || est.salvando || !est.foto) return;
+    // pessoa digitando: espera a próxima rodada para não tirar o cursor do campo
+    if (document.activeElement?.closest?.('#lista') && /^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName)) return;
+    const nova = await fotoDaPasta();
+    if (!nova) return;
+    const msg = descreverMudanca(est.foto, nova);
+    if (!msg) return;
+    await carregarTudo();
+    aviso(msg);
+  }, segundos * 1000);
 }
 
 async function gravarArquivo(dir, nome, conteudo) {
@@ -303,6 +354,7 @@ async function salvarItem(cod, item) {
   if (!rasc || !est.raiz) return;
   const quem = usuario() || pedirUsuario();
   if (!quem) { aviso('Informe seu nome para salvar.', true); return; }
+  est.salvando = true;
   try {
     const pasta = await pastaDo(cod, true);
     const disco = await lerResposta(pasta);
@@ -334,10 +386,13 @@ async function salvarItem(cod, item) {
     for (const l of linhas) if (l[2] === 'anexou') est.autores[`${cod}/${l[5]}`] = { por: quem, em: agora };
     descartar(cod, item);
     await lerIndicador(cod);
+    await absorverMinhaMudanca(cod);
     aviso('');
   } catch (e) {
     console.error(e);
     aviso(`Erro ao salvar ${item}: ${e.message}. A alteração continua na tela; tente de novo.`, true);
+  } finally {
+    est.salvando = false;
   }
   renderCard(cod);
 }
@@ -678,6 +733,7 @@ async function iniciar() {
   try {
     const info = await (await fetch('/api/info')).json();
     await usarPasta(pastaServidor('', info.nome), info.pasta);
+    vigiar(info.intervalo || 30);
   } catch {
     aviso('O painel precisa ser aberto pelo arquivo abrir-painel.bat (ele liga o acesso à pasta da rede).', true);
   }

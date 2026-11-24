@@ -26,12 +26,32 @@ PAGINA = Path(__file__).resolve().parent
 CONFIG = PAGINA / "config.json"
 
 
-def caminho_configurado():
-    """Lê "caminho_rede" do config.json, ao lado deste arquivo."""
+def ler_config():
+    """Lê o config.json, ao lado deste arquivo. "caminho_rede" é obrigatório."""
     try:
-        return json.loads(CONFIG.read_text(encoding="utf-8"))["caminho_rede"]
+        config = json.loads(CONFIG.read_text(encoding="utf-8"))
+        config["caminho_rede"]
+        return config
     except (OSError, ValueError, KeyError) as e:
         sys.exit(f"Não consegui ler \"caminho_rede\" em {CONFIG}: {e}")
+
+
+def estado_da_pasta(pasta):
+    """{caminho relativo: data de modificação} de todos os arquivos do ano, fora o _backup.
+    A página compara duas leituras para saber o que entrou, saiu ou mudou."""
+    estado = {}
+    for dirpath, dirnames, arquivos in os.walk(pasta):
+        dirnames[:] = [d for d in dirnames if d != BACKUP]
+        for nome in arquivos:
+            if nome.startswith(".tmp-"):
+                continue
+            caminho = Path(dirpath) / nome
+            try:
+                # microssegundos: cabe inteiro no número do JavaScript (nanossegundos não cabe)
+                estado[caminho.relative_to(pasta).as_posix()] = caminho.stat().st_mtime_ns // 1000
+            except OSError:  # apagado no meio da leitura
+                pass
+    return estado
 
 
 def conferir_acesso(pasta):
@@ -58,6 +78,7 @@ class Servidor(ThreadingHTTPServer):
 
 class Painel(SimpleHTTPRequestHandler):
     raiz: Path = None
+    intervalo = 30  # segundos entre as conferências automáticas da pasta (config.json: "intervalo_segundos")
 
     def __init__(self, *a, **k):
         super().__init__(*a, directory=str(PAGINA), **k)
@@ -112,8 +133,10 @@ class Painel(SimpleHTTPRequestHandler):
         rota = urlparse(self.path).path
         try:
             if rota == "/api/info":
-                return self.responder(200, {"pasta": str(self.raiz), "nome": self.raiz.name})
+                return self.responder(200, {"pasta": str(self.raiz), "nome": self.raiz.name, "intervalo": self.intervalo})
             alvo = self.caminho()
+            if rota == "/api/estado" and metodo == "GET":
+                return self.responder(200, estado_da_pasta(alvo) if alvo.is_dir() else {})
             if BACKUP in alvo.relative_to(self.raiz).parts and metodo != "GET":
                 return self.responder(403, {"erro": "a pasta de backup não pode ser alterada"})
             if rota == "/api/lista" and metodo == "GET":
@@ -171,7 +194,9 @@ class Painel(SimpleHTTPRequestHandler):
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    raiz = Path(args[0] if args else caminho_configurado())
+    config = ler_config()
+    raiz = Path(args[0] if args else config["caminho_rede"])
+    Painel.intervalo = max(5, int(config.get("intervalo_segundos", 30)))
     problema = conferir_acesso(raiz)
     if problema:
         sys.exit(f"Erro: {raiz}: {problema}. Confira a conexão com a rede ou peça acesso à TI.")
