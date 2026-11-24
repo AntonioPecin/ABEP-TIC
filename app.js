@@ -12,7 +12,6 @@
 const $ = (s) => document.querySelector(s);
 const RESPOSTA = 'resposta.json';
 const REGISTRO = 'log-evidencias.csv';
-const CABECALHO = 'data_hora;colaborador;acao;indicador;qualificador;evidencia;hash_anterior;hash';
 const HASH_INICIAL = '0'.repeat(64);
 // Indicador cujo texto de evidência começa assim não exige anexo ("Não é necessário...", "A UF não deverá enviar...")
 const SEM_EVIDENCIA = /^(\*\*)?(A UF )?n[ãa]o (é necessário|deverá enviar|é exigido)/i;
@@ -28,6 +27,8 @@ const est = {
   salvando: false,     // vigia espera enquanto um Salvar está gravando
   rascunho: {},        // codigo -> item -> { dados, novos: [{ nome, file }], remover: Set<nome> }
   dim: 0,
+  tela: 'indicadores', // ou 'evidencias' (tela "Evidências enviadas")
+  autoresLink: {},     // "codigo|qualificador|url" -> { por, em } (linha "adicionou link" do log)
 };
 
 /* ---------- utilidades ---------- */
@@ -113,16 +114,12 @@ function arquivoServidor(p, nome, criar) {
       b.lastModified = +r.headers.get('X-Modificado');
       return b;
     },
-    // keepExistingData só é usado pelo log: vira "acrescentar no fim", feito pelo servidor de uma vez
-    async createWritable(o = {}) {
+    // grava o arquivo inteiro de uma vez no close (o log não passa por aqui: ver registrar)
+    async createWritable() {
       const partes = [];
       return {
-        seek() {},
         write(x) { partes.push(x); },
-        async close() {
-          const corpo = new Blob(partes);
-          await ok(await fetch(api(o.keepExistingData ? 'acrescentar' : 'arquivo', p), { method: o.keepExistingData ? 'POST' : 'PUT', body: corpo }));
-        },
+        async close() { await ok(await fetch(api('arquivo', p), { method: 'PUT', body: new Blob(partes) })); },
       };
     },
   };
@@ -213,38 +210,38 @@ async function lerRegistro() {
   est.logProblema = problema ? `Atenção: ${REGISTRO} foi modificado fora do painel (${problema}). Avise a coordenação.` : '';
   if (problema) aviso(est.logProblema, true);
   else try { localStorage.setItem(chaveAncora(), JSON.stringify({ n: linhas.length, hash: linhas.at(-1)?.[7] || HASH_INICIAL })); } catch { /* ok */ }
-  for (const [em, por, acao, cod, , evidencia] of linhas) {
+  est.autoresLink = {};
+  for (const [em, por, acao, cod, qual, evidencia] of linhas) {
     if (acao === 'anexou') est.autores[`${cod}/${evidencia}`] = { por, em };
+    if (acao === 'adicionou link') est.autoresLink[`${cod}|${qual}|${evidencia}`] = { por, em };
   }
 }
 
 /** Acrescenta registros ao fim do log, encadeados. Nunca reescreve linhas antigas.
-    Se outra pessoa gravou ao mesmo tempo e a linha sumiu, tenta de novo em cima do log atualizado. */
+    O servidor.py só aceita se o hash de onde a corrente parte ainda for o da última linha do log (trava entre
+    pessoas); se outra pessoa gravou antes, responde 409 e aqui o encadeamento é refeito em cima do log atualizado. */
 async function registrar(registros) {
   if (!registros.length) return;
   const anoDir = await est.raiz.getDirectoryHandle(String(est.ano), { create: true });
-  for (let tentativa = 0; tentativa < 5; tentativa++) {
+  for (let tentativa = 0; tentativa < 8; tentativa++) {
     const atuais = await lerLog(anoDir);
-    let anterior = atuais.at(-1)?.[7] || HASH_INICIAL;
-    let texto = '';
+    const inicio = atuais.at(-1)?.[7] || HASH_INICIAL;
+    let anterior = inicio, texto = '';
     for (const campos of registros) {
       const hash = await hashLinha(anterior, campos);
       texto += [...campos, anterior, hash].map(csvCampo).join(';') + '\r\n';
       anterior = hash;
     }
-    const h = await anoDir.getFileHandle(REGISTRO, { create: true });
-    const tam = (await h.getFile()).size;
-    const w = await h.createWritable({ keepExistingData: true });
-    await w.seek(tam);
-    // BOM + cabeçalho só no arquivo novo: o Excel abre com acentos e colunas certas
-    await w.write((tam ? '' : '﻿' + CABECALHO + '\r\n') + texto);
-    await w.close();
-    const depois = await lerLog(anoDir);
-    if (depois.some((l) => l[7] === anterior)) {
-      try { localStorage.setItem(chaveAncora(), JSON.stringify({ n: depois.length, hash: depois.at(-1)[7] })); } catch { /* ok */ }
-      return;
+    const r = await fetch(api('acrescentar', `${est.ano}/${REGISTRO}`), {
+      method: 'POST', headers: { 'X-Hash-Anterior': inicio }, body: texto,
+    });
+    if (r.status === 409 || r.status === 503) { // outra pessoa gravou ou está gravando: espera um pouco e refaz
+      await new Promise((ok) => setTimeout(ok, 100 + Math.random() * 400));
+      continue;
     }
-    await new Promise((r) => setTimeout(r, 200 + Math.random() * 500));
+    await ok(r);
+    try { localStorage.setItem(chaveAncora(), JSON.stringify({ n: atuais.length + registros.length, hash: anterior })); } catch { /* ok */ }
+    return;
   }
   throw new Error(`não consegui gravar no ${REGISTRO} (muita gente salvando ao mesmo tempo)`);
 }
@@ -325,7 +322,7 @@ function vigiar(segundos) {
   setInterval(async () => {
     if (!est.raiz || est.salvando || !est.foto) return;
     // pessoa digitando: espera a próxima rodada para não tirar o cursor do campo
-    if (document.activeElement?.closest?.('#lista') && /^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName)) return;
+    if (document.activeElement?.closest?.('main') && /^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName)) return;
     const nova = await fotoDaPasta();
     if (!nova) return;
     const msg = descreverMudanca(est.foto, nova);
@@ -448,7 +445,7 @@ function situacao(ind) {
   const quals = ind.qualificadores.filter((q) => r.qualificadores[q.codigo]?.atende);
   const faltam = [];
   if (!ind.qualificadores.length && !ind.opcoes.length && semEvidencia(ind)) {
-    return { cls: 'ok', txt: 'Não exige evidência', faltam };
+    return { cls: 'isento', txt: 'Não exige evidência', faltam }; // fora de "Preenchidos": tem cartão próprio
   }
   const itemInd = ind.opcoes.length ? !!r.opcao
     : !ind.qualificadores.length ? temEvid(cod, cod, r.links) : null; // null = sem item próprio
@@ -474,6 +471,69 @@ function selos(ind) {
 function render() {
   renderMenu();
   renderLista();
+  if (est.tela === 'evidencias') renderEvidencias();
+}
+
+/* ---------- tela "Evidências enviadas" ---------- */
+/** Todos os arquivos (lidos das pastas) e links (dos resposta.json) do ano, com quem enviou e quando (do log). */
+function listaEvidencias() {
+  const itens = [];
+  for (const { dim, ind } of todos()) {
+    const cod = ind.codigo, r = salvo(cod);
+    for (const nome of est.arquivos[cod] || []) {
+      const a = est.autores[`${cod}/${nome}`] || {};
+      itens.push({ dim, ind, qual: codigosDoArquivo(cod, nome).filter((c) => c !== cod).join(', '), tipo: 'arquivo',
+        evidencia: nome, caminho: `${est.ano}/Dimensao ${dim.id}/${cod}/${nome}`, por: a.por || '', em: a.em || '' });
+    }
+    const links = [['', r.links, r], ...Object.entries(r.qualificadores || {}).map(([q, d]) => [q, d.links, d])];
+    for (const [qual, urls, origem] of links) {
+      for (const url of urls || []) {
+        const a = est.autoresLink[`${cod}|${qual}|${url}`] || { por: origem.salvoPor || '', em: origem.salvoEm || '' };
+        itens.push({ dim, ind, qual, tipo: 'link', evidencia: url, por: a.por, em: a.em });
+      }
+    }
+  }
+  return itens;
+}
+
+/** Monta os filtros (mantendo o que estava escolhido) e a tabela. */
+function renderEvidencias() {
+  const itens = listaEvidencias();
+  const opcoes = (sel, lista, todasTxt) => {
+    const atual = sel.value;
+    sel.innerHTML = `<option value="">${todasTxt}</option>` + lista.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('');
+    sel.value = lista.some(([v]) => v === atual) ? atual : '';
+  };
+  opcoes($('#ev-dim'), dados().dimensoes.map((d) => [d.id, `Dimensão ${d.id}`]), 'Todas as dimensões');
+  opcoes($('#ev-pessoa'), [...new Set(itens.map((i) => i.por).filter(Boolean))].sort().map((p) => [p, p]), 'Todas as pessoas');
+  atualizarTabelaEv(itens);
+}
+
+function atualizarTabelaEv(itens = listaEvidencias()) {
+  const termo = $('#ev-busca').value.trim().toLowerCase(), dim = $('#ev-dim').value, pessoa = $('#ev-pessoa').value;
+  const vistos = itens.filter((i) => (!dim || i.dim.id === dim) && (!pessoa || i.por === pessoa) &&
+    (!termo || `${i.ind.codigo} ${i.qual} ${i.evidencia} ${i.ind.pergunta}`.toLowerCase().includes(termo)));
+  const arq = vistos.filter((i) => i.tipo === 'arquivo').length;
+  $('#ev-contagem').textContent = `${vistos.length} evidências (${arq} arquivos, ${vistos.length - arq} links)`;
+  $('#ev-linhas').innerHTML = vistos.map((i) => `<tr>
+    <td><span class="cod">${i.ind.codigo}</span><small class="mudo">Dimensão ${esc(i.dim.id)}</small></td>
+    <td>${esc(i.qual) || '<span class="mudo">indicador</span>'}</td>
+    <td class="ev-nome">${i.tipo === 'arquivo'
+      ? `<a href="${api('arquivo', i.caminho)}" download="${esc(i.evidencia)}">${esc(i.evidencia)}</a>`
+      : `<a href="${esc(i.evidencia)}" target="_blank" rel="noopener noreferrer">${esc(i.evidencia)}</a>`}
+      <small class="mudo">${i.tipo === 'arquivo' ? 'arquivo' : 'link'}</small></td>
+    <td>${esc(i.por) || '<span class="mudo">sem registro</span>'}</td>
+    <td>${i.em ? hora(i.em) : ''}</td>
+    <td><button type="button" class="sec" data-abrir="${i.ind.codigo}">Abrir indicador</button></td></tr>`).join('')
+    || '<tr><td colspan="6" class="mudo">Nenhuma evidência com esses filtros.</td></tr>';
+}
+
+function mostrarTela(tela) {
+  est.tela = tela;
+  $('#tela-indicadores').hidden = tela !== 'indicadores';
+  $('#tela-evidencias').hidden = tela !== 'evidencias';
+  $('#btn-evidencias').setAttribute('aria-current', String(tela === 'evidencias'));
+  render();
 }
 
 /** Menu de dimensões (sidebar) + cartões de resumo do topo: os dois mostram o progresso salvo. */
@@ -482,7 +542,7 @@ function renderMenu() {
     const n = d.indicadores.length;
     const cls = d.indicadores.map((i) => situacao(i).cls);
     const ok = cls.filter((c) => c === 'ok').length, parc = cls.filter((c) => c === 'parcial').length;
-    return `<button type="button" data-dim="${k}" aria-current="${k === est.dim && !$('#busca').value}">
+    return `<button type="button" data-dim="${k}" aria-current="${est.tela === 'indicadores' && k === est.dim && !$('#busca').value}">
       <span class="nome">Dimensão ${esc(d.id)}</span><span class="desc">${esc(d.nome)}</span>
       <span class="mudo">${ok} preenchidos · ${parc} parciais de ${n}</span>
       <span class="barra" aria-hidden="true"><i class="ok" style="width:${(100 * ok) / n}%"></i><i class="parcial" style="width:${(100 * parc) / n}%"></i></span></button>`;
@@ -496,7 +556,8 @@ function renderMenu() {
     cartao('Preenchidos', conta((s) => s.cls === 'ok'), 'var(--bi-success)', `de ${sits.length} indicadores`) +
     cartao('Parciais', conta((s) => s.cls === 'parcial'), 'var(--ds-color-info)', 'com parte dos itens marcada') +
     cartao('Pendentes', conta((s) => !s.cls), 'var(--bi-fg-subdued)', 'nada marcado ainda') +
-    cartao('Falta evidência', conta((s) => s.faltam.length), 'var(--bi-warning)', 'item marcado sem anexo ou link');
+    cartao('Falta evidência', conta((s) => s.faltam.length), 'var(--bi-warning)', 'item marcado sem anexo ou link') +
+    cartao('Não exigem evidência', conta((s) => s.cls === 'isento'), 'var(--bi-fg-accent)', 'o Comitê avalia com dado público');
 }
 
 function menuCelular(abrir) {
@@ -511,7 +572,7 @@ function renderLista() {
   const pendentes = $('#so-pendentes').checked;
   let itens = termo ? todos() : dados().dimensoes[est.dim].indicadores.map((i) => ({ dim: dados().dimensoes[est.dim], ind: i }));
   if (termo) itens = itens.filter(({ ind }) => JSON.stringify(ind).toLowerCase().includes(termo));
-  if (pendentes) itens = itens.filter(({ ind }) => situacao(ind).cls !== 'ok');
+  if (pendentes) itens = itens.filter(({ ind }) => !['ok', 'isento'].includes(situacao(ind).cls));
   const d = dados().dimensoes[est.dim];
   const cab = termo ? `<h2>Resultado da busca (${itens.length})</h2>` :
     `<h2>Dimensão ${esc(d.id)} – ${esc(d.nome)}</h2><span class="mudo">Valor de cada indicador: ${esc(d.valorIndicador)}</span>`;
@@ -694,8 +755,22 @@ function ligar() {
     if (!b) return;
     est.dim = +b.dataset.dim;
     $('#busca').value = '';
-    render();
+    mostrarTela('indicadores');
     menuCelular(false);
+    window.scrollTo(0, 0);
+  });
+  $('#btn-evidencias').addEventListener('click', () => { mostrarTela('evidencias'); menuCelular(false); window.scrollTo(0, 0); });
+  $('#ev-busca').addEventListener('input', () => atualizarTabelaEv());
+  $('#ev-dim').addEventListener('change', () => atualizarTabelaEv());
+  $('#ev-pessoa').addEventListener('change', () => atualizarTabelaEv());
+  $('#ev-linhas').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-abrir]');
+    if (!b) return;
+    const { dim } = achar(b.dataset.abrir);
+    est.dim = dados().dimensoes.indexOf(dim);
+    est.aba = b.dataset.abrir;
+    $('#busca').value = '';
+    mostrarTela('indicadores');
     window.scrollTo(0, 0);
   });
   $('#btn-menu').addEventListener('click', () => menuCelular(true));

@@ -6,19 +6,30 @@ Uso:  python servidor.py                 (pasta de "caminho_rede" no config.json
 Ao iniciar, confere se a pasta existe e se dá para ler e gravar nela; se não, avisa e não abre.
 Só aceita conexões desta máquina (127.0.0.1). Só usa a biblioteca padrão do Python.
 
-O log (log-evidencias.csv) só aceita acréscimo: o servidor recusa sobrescrever ou apagar esse arquivo.
+O log (log-evidencias.csv) só aceita acréscimo: o servidor recusa sobrescrever ou apagar esse arquivo. Cada
+acréscimo é feito sob trava (arquivo .lock na própria pasta da rede, porque cada pessoa roda o seu servidor.py) e só
+entra se ainda encadeia com a última linha do log; se não, responde 409 e o painel refaz o encadeamento.
+Só atende pedidos da própria página (Host/Origin 127.0.0.1 ou localhost na porta do painel).
+Opções: --sem-navegador (não abre o navegador), --porta=N (usa só essa porta).
 """
 import json
 import os
+import random
 import sys
 import tempfile
+import time
 import webbrowser
+from contextlib import contextmanager
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 LOG = "log-evidencias.csv"
+CABECALHO_LOG = "data_hora;colaborador;acao;indicador;qualificador;evidencia;hash_anterior;hash"
+HASH_INICIAL = "0" * 64
+TRAVA_ESPERA = 5   # segundos tentando pegar a trava do log antes de desistir (503)
+TRAVA_VELHA = 30   # trava mais velha que isso foi abandonada (servidor fechado no meio) e é removida
 RESPOSTA = "resposta.json"
 BACKUP = "_backup"  # <ano>/_backup: toda evidência removida ou substituída; o painel não altera nem apaga nada aqui
 PORTA = 8765
@@ -43,7 +54,7 @@ def estado_da_pasta(pasta):
     for dirpath, dirnames, arquivos in os.walk(pasta):
         dirnames[:] = [d for d in dirnames if d != BACKUP]
         for nome in arquivos:
-            if nome.startswith(".tmp-"):
+            if nome.startswith(".tmp-") or nome.endswith(".lock"):
                 continue
             caminho = Path(dirpath) / nome
             try:
@@ -52,6 +63,45 @@ def estado_da_pasta(pasta):
             except OSError:  # apagado no meio da leitura
                 pass
     return estado
+
+
+def ultimo_hash(log):
+    """Hash da última linha do log (última coluna). Log que não existe ou só tem cabeçalho: HASH_INICIAL.
+    Lê só o fim do arquivo: o log cresce o ano todo."""
+    if not log.is_file():
+        return HASH_INICIAL
+    with open(log, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        f.seek(max(0, f.tell() - 8192))
+        fim = f.read().decode("utf-8", "replace")
+    linhas = [l for l in fim.splitlines() if l.strip()]
+    if not linhas or linhas[-1].lstrip("﻿").startswith("data_hora;"):
+        return HASH_INICIAL
+    return linhas[-1].rsplit(";", 1)[-1].strip().strip('"')
+
+
+@contextmanager
+def trava(caminho):
+    """Trava entre pessoas: criar o arquivo com O_EXCL só dá certo para um de cada vez, também na pasta da rede."""
+    limite = time.monotonic() + TRAVA_ESPERA
+    while True:
+        try:
+            os.close(os.open(caminho, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            break
+        except FileExistsError:
+            try:
+                if time.time() - caminho.stat().st_mtime > TRAVA_VELHA:
+                    caminho.unlink(missing_ok=True)
+                    continue
+            except FileNotFoundError:
+                continue  # a outra pessoa acabou de soltar
+            if time.monotonic() > limite:
+                raise TimeoutError("o log está ocupado por outra pessoa; tente salvar de novo")
+            time.sleep(0.05 + random.random() * 0.15)
+    try:
+        yield
+    finally:
+        caminho.unlink(missing_ok=True)
 
 
 def conferir_acesso(pasta):
@@ -129,8 +179,18 @@ class Painel(SimpleHTTPRequestHandler):
         pasta.mkdir(parents=True, exist_ok=True)
         os.replace(alvo, destino)
 
+    def de_fora(self):
+        """Pedido que não veio da própria página do painel: outro site aberto no navegador (Origin) ou um nome de
+        servidor estranho (Host, protege de DNS rebinding)."""
+        porta = self.server.server_address[1]
+        hosts = {f"127.0.0.1:{porta}", f"localhost:{porta}"}
+        origem = self.headers.get("Origin")
+        return self.headers.get("Host") not in hosts or (origem is not None and origem not in {f"http://{h}" for h in hosts})
+
     def api(self, metodo):
         rota = urlparse(self.path).path
+        if self.de_fora():
+            return self.responder(403, {"erro": "pedido de fora do painel"})
         try:
             if rota == "/api/info":
                 return self.responder(200, {"pasta": str(self.raiz), "nome": self.raiz.name, "intervalo": self.intervalo})
@@ -165,13 +225,25 @@ class Painel(SimpleHTTPRequestHandler):
                 if metodo == "DELETE":  # nunca apaga: move para o backup
                     self.para_backup(alvo)
                     return self.responder(200, {})
-            if rota == "/api/acrescentar" and metodo == "POST":  # só acrescenta no fim
-                with open(alvo, "ab") as f:
-                    self.corpo_para(f)
+            if rota == "/api/acrescentar" and metodo == "POST":  # só acrescenta no fim, e só no log
+                if alvo.name != LOG:
+                    return self.responder(403, {"erro": "só o log aceita acréscimo"})
+                corpo = self.rfile.read(int(self.headers.get("Content-Length", 0)))  # linhas do log: pequeno
+                esperado = self.headers.get("X-Hash-Anterior", "")
+                with trava(alvo.with_name(LOG + ".lock")):
+                    if ultimo_hash(alvo) != esperado:
+                        return self.responder(409, {"erro": "o log mudou desde a leitura; encadeie de novo"})
+                    novo = not alvo.is_file() or alvo.stat().st_size == 0
+                    with open(alvo, "ab") as f:
+                        if novo:  # BOM + cabeçalho: o Excel abre com acentos e colunas certas
+                            f.write(("﻿" + CABECALHO_LOG + "\r\n").encode("utf-8"))
+                        f.write(corpo)
                 return self.responder(200, {})
             return self.responder(404, {"erro": "rota desconhecida"})
         except PermissionError as e:
             return self.responder(403, {"erro": str(e)})
+        except TimeoutError as e:
+            return self.responder(503, {"erro": str(e)})
         except FileNotFoundError:
             return self.responder(404, {"erro": "não existe"})
         except OSError as e:
@@ -201,14 +273,16 @@ def main():
     if problema:
         sys.exit(f"Erro: {raiz}: {problema}. Confira a conexão com a rede ou peça acesso à TI.")
     Painel.raiz = raiz.resolve()
-    for porta in range(PORTA, PORTA + 20):  # porta ocupada (outro painel aberto): tenta a seguinte
+    fixa = next((int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--porta=")), None)
+    portas = [fixa] if fixa else range(PORTA, PORTA + 20)  # porta ocupada (outro painel aberto): tenta a seguinte
+    for porta in portas:
         try:
             servidor = Servidor(("127.0.0.1", porta), Painel)
             break
         except OSError:
             continue
     else:
-        sys.exit("Nenhuma porta livre entre 8765 e 8784.")
+        sys.exit(f"Porta ocupada: {fixa}." if fixa else "Nenhuma porta livre entre 8765 e 8784.")
     url = f"http://127.0.0.1:{porta}/"  # não "localhost": pode cair em outro servidor que ouve em IPv6
     print(f"Painel ABEP-TIC em {url}\nEvidências em {raiz}\nPara fechar, feche esta janela.", flush=True)
     if "--sem-navegador" not in sys.argv:

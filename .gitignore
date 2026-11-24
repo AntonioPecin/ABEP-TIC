@@ -7,6 +7,10 @@ __pycache__/
 venv/
 ENV/
 
+# Pasta de teste do .claude/launch.json: só a pasta vai para o git, o que o painel grava nela não
+pasta-teste/*
+!pasta-teste/.gitkeep
+
 # Arquivos gerados em tempo de execução
 _backup/
 log-evidencias.csv

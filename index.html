@@ -19,6 +19,7 @@
       <img src="img/logo-ms-horizontal.svg" alt="Governo de Mato Grosso do Sul">
     </div>
     <div class="sidebar-rolagem">
+      <button id="btn-evidencias" type="button" class="nav-evid" aria-current="false">Evidências enviadas</button>
       <nav id="menu" aria-label="Dimensões"></nav>
       <div class="sidebar-filtros">
         <label class="rotulo" for="ano">Ano da pesquisa</label>
@@ -43,10 +44,27 @@
     <main class="principal">
       <div id="aviso" class="aviso" hidden></div>
       <section id="resumo" class="resumo" aria-label="Resumo"></section>
-      <div class="busca">
-        <input id="busca" type="search" class="ds-input" placeholder="Buscar indicador ou texto…" aria-label="Buscar indicador">
+      <div id="tela-indicadores">
+        <div class="busca">
+          <input id="busca" type="search" class="ds-input" placeholder="Buscar indicador ou texto…" aria-label="Buscar indicador">
+        </div>
+        <div id="lista"></div>
       </div>
-      <div id="lista"></div>
+      <!-- Tela "Evidências enviadas": todos os arquivos e links do ano, com quem enviou e quando -->
+      <section id="tela-evidencias" hidden>
+        <div class="cab-dim"><h2>Evidências enviadas</h2><span id="ev-contagem" class="mudo"></span></div>
+        <div class="filtros-ev">
+          <input id="ev-busca" type="search" class="ds-input" placeholder="Buscar arquivo, link ou indicador…" aria-label="Buscar evidência">
+          <select id="ev-dim" class="ds-select" aria-label="Filtrar por dimensão"></select>
+          <select id="ev-pessoa" class="ds-select" aria-label="Filtrar por pessoa"></select>
+        </div>
+        <div class="tabela-rolagem">
+          <table class="tabela-ev">
+            <thead><tr><th>Indicador</th><th>Qualificador</th><th>Evidência</th><th>Enviado por</th><th>Quando</th><th><span class="sr">Ação</span></th></tr></thead>
+            <tbody id="ev-linhas"></tbody>
+          </table>
+        </div>
+      </section>
     </main>
   </div>
 

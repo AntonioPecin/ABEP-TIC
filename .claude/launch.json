@@ -4,8 +4,10 @@
     {
       "name": "painel",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8765", "--bind", "127.0.0.1"],
-      "port": 8765
+      "runtimeArgs": ["servidor.py", "pasta-teste", "--sem-navegador", "--porta=8790"],
+      "port": 8790,
+      "autoPort": false,
+      "url": "http://127.0.0.1:8790"
     }
   ]
 }

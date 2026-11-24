@@ -13,7 +13,9 @@ escolhida por quem usa.
    - O caminho da pasta fica em `caminho_rede`, no `config.json` (barras duplicadas: `\\\\s0101\\SGD\\...`).
      Ao abrir, o painel confere se a pasta existe e se você pode ler e gravar nela; se não, mostra o erro na janela
      preta e não abre. Para testar em outra pasta:
-     `abrir-painel.bat "C:\caminho\da\pasta-de-teste"`.
+     `abrir-painel.bat "C:\caminho\da\pasta-de-teste"`. Para fixar a porta: `--porta=8790`.
+   - Para desenvolver: o `.claude/launch.json` sobe `servidor.py pasta-teste --sem-navegador --porta=8790`. A pasta
+     `pasta-teste/` fica no repositório vazia; o que o painel grava nela não vai para o git.
    - Abrir o `index.html` direto não funciona: o acesso à pasta da rede é feito pelo `servidor.py`.
 2. A página confere a pasta sozinha a cada 30 segundos (`intervalo_segundos` no `config.json`, mínimo 5). Se alguém
    anexou, apagou ou salvou algo (pelo painel ou direto pelo Windows), ela relê a pasta e avisa no topo, por exemplo:
@@ -66,10 +68,23 @@ escolhida por quem usa.
 - **Limite:** quem abrir a pasta da rede pelo Windows ainda consegue mexer no arquivo; a página detecta, mas não impede.
   Para impedir de verdade, peça à TI para deixar as pessoas só acrescentarem dados nesse arquivo (sem alterar nem
   excluir) na pasta de rede. O `servidor.py` grava o log só acrescentando, então essa permissão é suficiente.
-- Se duas pessoas salvarem exatamente ao mesmo tempo, o painel confere se a linha entrou e tenta de novo. Em um caso
-  raro, a linha de uma delas pode se perder. Nesse caso, o navegador dessa pessoa mostra o aviso de log alterado na
-  próxima vez que abrir.
+- **Várias pessoas salvando ao mesmo tempo:** cada acréscimo passa por uma trava na própria pasta da rede
+  (`log-evidencias.csv.lock`, existe só durante a gravação). O servidor só acrescenta se a corrente ainda parte da
+  última linha do log; se outra pessoa gravou antes, o painel refaz o encadeamento e tenta de novo. Nenhuma linha se
+  perde e a corrente não quebra. Uma trava com mais de 30 s (painel fechado no meio) é removida sozinha.
 - Na página, cada anexo mostra "anexado por Fulano em dd/mm", lido do log.
+
+### Evidências enviadas
+
+O botão **Evidências enviadas**, no topo da barra lateral, mostra numa só tabela todos os arquivos e links do ano:
+indicador, qualificador, evidência (o arquivo baixa ao clicar; o link abre em outra aba), quem enviou e quando (lidos do
+log). Dá para buscar por texto e filtrar por dimensão e por pessoa. **Abrir indicador** leva direto à aba dele.
+Arquivo copiado para a pasta pelo Windows, sem passar pelo painel, aparece como "sem registro" em "Enviado por".
+
+### Segurança do servidor local
+
+O `servidor.py` só atende a própria página do painel: pedido de outro site aberto no navegador (cabeçalho `Origin`) ou
+com outro endereço (`Host`) é recusado. Só o `log-evidencias.csv` aceita acréscimo.
 
 - O nome do arquivo começa pelo código do qualificador ou do indicador. Um arquivo copiado à mão para a pasta com esse
   prefixo também aparece na página.
@@ -100,7 +115,8 @@ Depois de importar, confira as marcações no painel.
 
 Os itens de um indicador são cada qualificador marcado e a opção escolhida (ex.: 1.11). Indicador sem qualificador e
 sem opção conta como preenchido quando tem anexo ou link. Indicador que o PDF diz não precisar de evidência
-(ex.: 2.11, 4.1) mostra **Não exige evidência**.
+(ex.: 2.11, 4.1) mostra **Não exige evidência** e entra no cartão próprio "Não exigem evidência", não em
+"Preenchidos".
 O selo usa o que está **salvo**.
 
 | Selo | Quando aparece |
