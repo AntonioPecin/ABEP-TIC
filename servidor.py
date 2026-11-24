@@ -13,8 +13,10 @@ Só atende pedidos da própria página (Host/Origin 127.0.0.1 ou localhost na po
 Opções: --sem-navegador (não abre o navegador), --porta=N (usa só essa porta).
 """
 import json
+import mimetypes
 import os
 import random
+import shutil
 import sys
 import tempfile
 import time
@@ -23,7 +25,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 LOG = "log-evidencias.csv"
 CABECALHO_LOG = "data_hora;colaborador;acao;indicador;qualificador;evidencia;hash_anterior;hash"
@@ -164,6 +166,23 @@ class Painel(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(corpo)
 
+    def enviar_arquivo(self, alvo):
+        """Manda o arquivo com o tipo certo, para PDF, imagem e vídeo abrirem no navegador (os outros baixam).
+        Em blocos: vídeo de evidência pode ter centenas de MB.
+        sandbox: um .html ou .svg anexado abre sem poder rodar script nem chamar a API do painel."""
+        tamanho = alvo.stat().st_size
+        self.send_response(200)
+        self.send_header("Content-Type", mimetypes.guess_type(alvo.name)[0] or "application/octet-stream")
+        self.send_header("Content-Length", str(tamanho))
+        self.send_header("Content-Disposition", f"inline; filename*=UTF-8''{quote(alvo.name)}")
+        self.send_header("Content-Security-Policy", "sandbox")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Modificado", str(int(alvo.stat().st_mtime * 1000)))
+        self.end_headers()
+        with open(alvo, "rb") as f:
+            shutil.copyfileobj(f, self.wfile, 1 << 20)
+
     def corpo_para(self, destino):
         """Copia o corpo da requisição para o arquivo aberto, em blocos (vídeos grandes)."""
         falta = int(self.headers.get("Content-Length", 0))
@@ -217,8 +236,7 @@ class Painel(SimpleHTTPRequestHandler):
                 if metodo == "GET":
                     if not alvo.is_file():
                         return self.responder(404, {"erro": "não existe"})
-                    return self.responder(200, alvo.read_bytes(), "application/octet-stream",
-                                          {"X-Modificado": str(int(alvo.stat().st_mtime * 1000))})
+                    return self.enviar_arquivo(alvo)
                 if alvo.name == LOG and metodo in ("PUT", "DELETE"):
                     return self.responder(403, {"erro": "o log só aceita acréscimo"})
                 if metodo == "PUT":  # grava inteiro: escreve num temporário e troca (não deixa arquivo pela metade)

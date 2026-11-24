@@ -31,6 +31,7 @@ const est = {
   dim: 0,
   tela: 'indicadores', // ou 'evidencias' (tela "Evidências enviadas")
   autoresLink: {},     // "codigo|qualificador|url" -> { por, em } (linha "adicionou link" do log)
+  selSalvar: new Set(), // abas marcadas para "Salvar selecionados"
 };
 
 /* ---------- utilidades ---------- */
@@ -405,7 +406,7 @@ function editar(cod, item, fn, redesenhar = true) {
   if (redesenhar) return renderCard(cod);
   const el = document.querySelector(`.ind[data-cod="${cod}"]`);
   el.querySelector('.selos').innerHTML = selos(achar(cod).ind);
-  document.getElementById(`aba-${cod}`).outerHTML = abaHtml(achar(cod).ind);
+  document.getElementById(`abaw-${cod}`).outerHTML = abaHtml(achar(cod).ind);
   el.querySelector(`[data-item="${item}"] > .rodape-item`).outerHTML = rodapeItem(cod, item);
   renderMenu();
 }
@@ -522,7 +523,7 @@ function atualizarTabelaEv(itens = listaEvidencias()) {
     <td><span class="cod">${i.ind.codigo}</span><small class="mudo">Dimensão ${esc(i.dim.id)}</small></td>
     <td>${esc(i.qual) || '<span class="mudo">indicador</span>'}</td>
     <td class="ev-nome">${i.tipo === 'arquivo'
-      ? `<a href="${api('arquivo', i.caminho)}" download="${esc(i.evidencia)}">${esc(i.evidencia)}</a>`
+      ? `<a href="${api('arquivo', i.caminho)}" target="_blank" rel="noopener">${esc(i.evidencia)}</a>`
       : `<a href="${esc(i.evidencia)}" target="_blank" rel="noopener noreferrer">${esc(i.evidencia)}</a>`}
       <small class="mudo">${i.tipo === 'arquivo' ? 'arquivo' : 'link'}</small></td>
     <td>${esc(i.por) || '<span class="mudo">sem registro</span>'}</td>
@@ -563,6 +564,7 @@ function mostrarTela(tela) {
 
 /** Menu de dimensões (sidebar) + cartões de resumo do topo: os dois mostram o progresso salvo. */
 function renderMenu() {
+  renderLote();
   $('#menu').innerHTML = dados().dimensoes.map((d, k) => {
     const n = d.indicadores.length;
     const cls = d.indicadores.map((i) => situacao(i).cls);
@@ -614,11 +616,48 @@ function renderLista() {
       <div class="corpo">${corpo(ind)}</div></section>`;
 }
 
+/** Aba do indicador. Com alteração não salva, ganha um checkbox para entrar no "Salvar selecionados". */
 function abaHtml(ind) {
-  const sel = ind.codigo === est.aba;
-  return `<button type="button" role="tab" class="bi-tab" id="aba-${ind.codigo}" data-aba="${ind.codigo}"
+  const cod = ind.codigo, sel = cod === est.aba, sujo = temRascunho(cod);
+  return `<span class="aba${sujo ? ' suja' : ''}" id="abaw-${cod}">
+    ${sujo ? `<input type="checkbox" data-sel="${cod}" ${est.selSalvar.has(cod) ? 'checked' : ''} aria-label="Selecionar ${cod} para salvar">` : ''}
+    <button type="button" role="tab" class="bi-tab" id="aba-${cod}" data-aba="${cod}"
     aria-selected="${sel}" aria-controls="painel-ind" tabindex="${sel ? 0 : -1}" title="${esc(ind.pergunta)}">
-    <span class="ponto ${situacao(ind).cls}${temRascunho(ind.codigo) ? ' rascunho' : ''}" aria-hidden="true"></span>${ind.codigo}</button>`;
+    <span class="ponto ${situacao(ind).cls}${sujo ? ' rascunho' : ''}" aria-hidden="true"></span>${cod}</button></span>`;
+}
+
+/* ---------- salvar várias abas de uma vez ---------- */
+const pendentes = () => todos().map(({ ind }) => ind.codigo).filter(temRascunho);
+
+/** Barra acima das abas: aparece quando há indicador com alteração não salva (em qualquer dimensão). */
+function renderLote() {
+  for (const c of [...est.selSalvar]) if (!temRascunho(c)) est.selSalvar.delete(c);
+  const pend = pendentes(), n = est.selSalvar.size;
+  $('#lote').hidden = !pend.length;
+  if (!pend.length) return;
+  $('#lote').innerHTML = `<label class="checa"><input type="checkbox" id="sel-todas" ${n === pend.length ? 'checked' : ''}>
+      Todas com alteração não salva (${pend.length}: ${pend.join(', ')})</label>
+    <button type="button" id="btn-salvar-lote" ${n ? '' : 'disabled'}>Salvar selecionados${n ? ` (${n})` : ''}</button>`;
+}
+
+/** Salva, um depois do outro, todos os itens pendentes das abas marcadas. Cada item passa pelo Salvar normal
+    (conflito, backup, log); o que não salvar continua pendente e é listado no aviso. */
+async function salvarLote() {
+  const cods = [...est.selSalvar].filter(temRascunho);
+  if (!cods.length || !(usuario() || pedirUsuario())) return;
+  const falhas = [];
+  let salvos = 0;
+  for (const cod of cods) {
+    for (const item of Object.keys(est.rascunho[cod] || {})) {
+      await salvarItem(cod, item);
+      if (est.rascunho[cod]?.[item]) falhas.push(item); else salvos++;
+    }
+  }
+  est.selSalvar.clear();
+  render();
+  aviso(falhas.length
+    ? `Salvei ${salvos} itens. Não salvei: ${falhas.join(', ')} — abra cada um e salve pelo botão do item para ver o motivo.`
+    : `Salvei ${salvos} itens de ${cods.length} indicadores (${cods.join(', ')}).`, falhas.length > 0);
 }
 
 function abrirAba(cod, focar = false) {
@@ -647,7 +686,10 @@ function blocoEvid(cod, item, links) {
     const autor = est.autores[`${cod}/${nome}`];
     const info = estado === 'novo' ? 'a enviar ao salvar' : estado === 'remover' ? 'será removido ao salvar'
       : autor ? `anexado por ${autor.por} em ${hora(autor.em)}` : '';
-    return linhaEvid(estado, `<span class="nome-arq">${esc(nome)}</span>`, info,
+    // anexo já salvo abre no navegador (PDF, imagem, vídeo; os demais baixam); o novo ainda não está na pasta
+    const nomeHtml = estado === 'novo' ? `<span class="nome-arq">${esc(nome)}</span>`
+      : `<a class="nome-arq" href="${api('arquivo', `${est.ano}/Dimensao ${achar(cod).dim.id}/${cod}/${nome}`)}" target="_blank" rel="noopener">${esc(nome)}</a>`;
+    return linhaEvid(estado, nomeHtml, info,
       `data-acao="remover" data-nome="${esc(nome)}" data-estado="${estado}"`, `${estado === 'novo' ? 'Tirar' : 'Remover'} ${nome}`, dis);
   }).join('');
   // links: os salvos, marcando os que o rascunho tirou, e depois os novos do rascunho
@@ -726,7 +768,7 @@ function corpo(ind) {
 
 function renderCard(cod) {
   const { ind } = achar(cod);
-  const aba = document.getElementById(`aba-${cod}`);
+  const aba = document.getElementById(`abaw-${cod}`);
   if (aba) aba.outerHTML = abaHtml(ind);
   const el = document.querySelector(`.ind[data-cod="${cod}"]`);
   if (el) {
@@ -765,6 +807,10 @@ function ligar() {
 
   lista.addEventListener('change', (e) => {
     const t = e.target, a = alvo(t);
+    if (t.dataset.sel) { // checkbox da aba: entra ou sai do "Salvar selecionados"
+      if (t.checked) est.selSalvar.add(t.dataset.sel); else est.selSalvar.delete(t.dataset.sel);
+      return renderLote();
+    }
     if (!a) return;
     if (t.dataset.acao === 'arquivo') return anexarNoRascunho(a.cod, a.item, t.files);
     if (t.dataset.campo === 'atende') editar(a.cod, a.item, (d) => { d.atende = t.checked; });
@@ -836,6 +882,13 @@ function ligar() {
     menuCelular(false);
     window.scrollTo(0, 0);
   });
+  $('#lote').addEventListener('change', (e) => {
+    if (e.target.id !== 'sel-todas') return;
+    est.selSalvar = new Set(e.target.checked ? pendentes() : []);
+    renderLista();
+    renderLote();
+  });
+  $('#lote').addEventListener('click', (e) => { if (e.target.closest('#btn-salvar-lote')) salvarLote(); });
   $('#btn-evidencias').addEventListener('click', () => { mostrarTela('evidencias'); menuCelular(false); window.scrollTo(0, 0); });
   $('#ev-busca').addEventListener('input', () => atualizarTabelaEv());
   $('#ev-dim').addEventListener('change', () => atualizarTabelaEv());

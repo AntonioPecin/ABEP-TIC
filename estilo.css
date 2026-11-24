@@ -166,6 +166,16 @@ input[type=radio] { width: 20px; height: 20px; accent-color: var(--ds-color-prim
 .bi-tab:hover:not(:disabled) { background: var(--bi-bg-normal); border-color: transparent; }
 .bi-tab[aria-selected="true"], .bi-tab[aria-selected="true"]:hover { color: var(--ds-color-primary-600); border-bottom-color: var(--ds-color-primary-600); background: var(--ds-color-background); font-weight: 700; }
 .bi-tab:focus-visible { outline: 2px solid var(--ds-color-primary-600); outline-offset: -3px; }
+/* aba com alteração não salva: checkbox para "Salvar selecionados" */
+.aba { display: inline-flex; align-items: center; flex-shrink: 0; }
+.aba.suja { padding-left: 8px; }
+.aba input[type=checkbox] { width: 16px; height: 16px; margin: 0; }
+.lote {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 12px;
+  padding: 10px 14px; border-radius: var(--ds-radius-sm); background: var(--ds-color-primary-100); color: var(--bi-fg-accent);
+}
+.lote .checa { margin: 0; font-weight: 600; }
+
 /* ponto de situação na aba: cinza pendente, azul parcial, verde preenchido, anel azul = não salvo */
 .ponto { width: 10px; height: 10px; border-radius: 50%; background: var(--ds-color-border); flex: none; }
 .ponto.parcial { background: var(--ds-color-info); }
