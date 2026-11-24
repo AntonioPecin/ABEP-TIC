@@ -515,6 +515,7 @@ function atualizarTabelaEv(itens = listaEvidencias()) {
   const termo = $('#ev-busca').value.trim().toLowerCase(), dim = $('#ev-dim').value, pessoa = $('#ev-pessoa').value;
   const vistos = itens.filter((i) => (!dim || i.dim.id === dim) && (!pessoa || i.por === pessoa) &&
     (!termo || `${i.ind.codigo} ${i.qual} ${i.evidencia} ${i.ind.pergunta}`.toLowerCase().includes(termo)));
+  est.evVistos = vistos; // a lixeira de cada linha aponta para cá pelo índice
   const arq = vistos.filter((i) => i.tipo === 'arquivo').length;
   $('#ev-contagem').textContent = `${vistos.length} evidências (${arq} arquivos, ${vistos.length - arq} links)`;
   $('#ev-linhas').innerHTML = vistos.map((i) => `<tr>
@@ -526,8 +527,30 @@ function atualizarTabelaEv(itens = listaEvidencias()) {
       <small class="mudo">${i.tipo === 'arquivo' ? 'arquivo' : 'link'}</small></td>
     <td>${esc(i.por) || '<span class="mudo">sem registro</span>'}</td>
     <td>${i.em ? hora(i.em) : ''}</td>
-    <td><button type="button" class="sec" data-abrir="${i.ind.codigo}">Abrir indicador</button></td></tr>`).join('')
+    <td class="ev-acoes"><button type="button" class="sec" data-abrir="${i.ind.codigo}">Abrir indicador</button>
+      ${botaoLixeira(`Remover ${i.tipo === 'link' ? 'link ' : ''}${i.evidencia}`, `data-remover-ev="${vistos.indexOf(i)}"`)}</td></tr>`).join('')
     || '<tr><td colspan="6" class="mudo">Nenhuma evidência com esses filtros.</td></tr>';
+}
+
+/** Lixeira da tela "Evidências enviadas": confirma e remove na hora, pelo mesmo Salvar do item (backup + log). */
+async function removerDaTabela(ev) {
+  if (!ev) return;
+  const cod = ev.ind.codigo;
+  const item = ev.tipo === 'link' ? (ev.qual || cod) : (codigosDoArquivo(cod, ev.evidencia)[0]);
+  if (est.rascunho[cod]?.[item]) {
+    aviso(`O ${item} tem alterações não salvas. Salve ou descarte essas alterações antes de remover por aqui.`, true);
+    return;
+  }
+  const pergunta = ev.tipo === 'link'
+    ? `Remover o link\n${ev.evidencia}\ndo ${item}?`
+    : `Remover "${ev.evidencia}" do indicador ${cod}?\nO arquivo vai para a pasta _backup.`;
+  if (!confirm(pergunta)) return;
+  editar(cod, item, (d, rasc) => {
+    if (ev.tipo === 'link') d.links = d.links.filter((u) => u !== ev.evidencia);
+    else rasc.remover.add(ev.evidencia);
+  });
+  await salvarItem(cod, item);
+  renderEvidencias();
 }
 
 function mostrarTela(tela) {
@@ -605,26 +628,56 @@ function abrirAba(cod, focar = false) {
   if (focar) document.getElementById(`aba-${cod}`)?.focus();
 }
 
+/** Toda remoção de anexo ou link usa este botão: lixeira vermelha, sem texto visível (o nome fica para leitor de tela). */
+function botaoLixeira(rotulo, atributos, dis = '') {
+  return `<button type="button" class="lixeira" title="${esc(rotulo)}" ${atributos} ${dis}><span class="sr">${esc(rotulo)}</span>${ICONE_LIXEIRA}</button>`;
+}
+
+/** Item de lista (anexo ou link): nome, situação e a ação. "Manter" desfaz uma remoção marcada antes de salvar. */
+function linhaEvid(estado, nomeHtml, info, attrs, rotulo, dis) {
+  const acao = estado === 'remover'
+    ? `<button type="button" class="link" ${attrs} ${dis}>Manter</button>`
+    : botaoLixeira(rotulo, attrs, dis);
+  return `<li class="${estado}"><span>${nomeHtml}${info ? `<small>${esc(info)}</small>` : ''}</span>${acao}</li>`;
+}
+
 function blocoEvid(cod, item, links) {
   const dis = est.raiz ? '' : 'disabled';
-  const lista = anexosDe(cod, item, true).map(({ nome, estado }) => {
+  const anexos = anexosDe(cod, item, true).map(({ nome, estado }) => {
     const autor = est.autores[`${cod}/${nome}`];
     const info = estado === 'novo' ? 'a enviar ao salvar' : estado === 'remover' ? 'será removido ao salvar'
       : autor ? `anexado por ${autor.por} em ${hora(autor.em)}` : '';
-    // lixeira vermelha remove (ou tira o anexo ainda não enviado); "Manter" desfaz uma remoção marcada
-    const botao = estado === 'remover' ? 'Manter'
-      : `<span class="sr">${estado === 'novo' ? 'Tirar' : 'Remover'} ${esc(nome)}</span>${ICONE_LIXEIRA}`;
-    return `<li class="${estado}"><span><span class="nome-arq">${esc(nome)}</span>${info ? `<small>${esc(info)}</small>` : ''}</span>
-      <button type="button" class="${estado === 'remover' ? 'link' : 'lixeira'}" data-acao="remover" data-nome="${esc(nome)}" data-estado="${estado}"
-        ${estado === 'remover' ? '' : `title="${estado === 'novo' ? 'Tirar' : 'Remover'}"`} ${dis}>${botao}</button></li>`;
+    return linhaEvid(estado, `<span class="nome-arq">${esc(nome)}</span>`, info,
+      `data-acao="remover" data-nome="${esc(nome)}" data-estado="${estado}"`, `${estado === 'novo' ? 'Tirar' : 'Remover'} ${nome}`, dis);
+  }).join('');
+  // links: os salvos, marcando os que o rascunho tirou, e depois os novos do rascunho
+  const salvos = itemDe(salvo(cod), cod, item).links, atuais = links || [];
+  const listaLinks = [...salvos.map((u) => [u, atuais.includes(u) ? '' : 'remover']), ...atuais.filter((u) => !salvos.includes(u)).map((u) => [u, 'novo'])];
+  const linhasLinks = listaLinks.map(([url, estado]) => {
+    const a = est.autoresLink[`${cod}|${item === cod ? '' : item}|${url}`];
+    const info = estado === 'novo' ? 'a adicionar ao salvar' : estado === 'remover' ? 'será removido ao salvar'
+      : a ? `adicionado por ${a.por} em ${hora(a.em)}` : '';
+    return linhaEvid(estado, `<a class="nome-arq" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`, info,
+      `data-acao="${estado === 'remover' ? 'manter-link' : 'tirar-link'}" data-url="${esc(url)}"`, `Remover link ${url}`, dis);
   }).join('');
   return `<div class="evid">
     <div class="soltar">Arraste arquivos aqui ou
       <button type="button" class="sec" data-acao="escolher" ${dis}>Anexar arquivo</button>
       <input type="file" multiple hidden data-acao="arquivo"></div>
-    ${lista ? `<ul class="arquivos">${lista}</ul>` : ''}
-    <label class="campo"><span>Links (um por linha)</span>
-      <textarea data-campo="links" ${dis}>${esc((links || []).join('\n'))}</textarea></label></div>`;
+    ${anexos ? `<ul class="arquivos">${anexos}</ul>` : ''}
+    <div class="campo"><span>Links</span>
+      ${linhasLinks ? `<ul class="arquivos">${linhasLinks}</ul>` : ''}
+      <div class="add-link">
+        <input type="url" class="ds-input" data-campo="novo-link" placeholder="Cole o link (pode colar vários)" aria-label="Novo link" ${dis}>
+        <button type="button" class="sec" data-acao="add-link" ${dis}>Adicionar link</button>
+      </div></div></div>`;
+}
+
+/** Acrescenta os links digitados ou colados (separados por espaço ou linha), sem repetir. */
+function adicionarLinks(cod, item, texto) {
+  const novos = String(texto).split(/\s+/).map((u) => u.trim()).filter(Boolean);
+  if (!novos.length) return;
+  editar(cod, item, (d) => { for (const u of novos) if (!d.links.includes(u)) d.links.push(u); });
 }
 
 /** Rodapé de cada item: quem salvou e, se houver alteração, Descartar/Salvar daquele item. */
@@ -720,11 +773,22 @@ function ligar() {
 
   lista.addEventListener('input', (e) => {
     const t = e.target, a = alvo(t);
-    if (!a || t.tagName !== 'TEXTAREA') return;
-    editar(a.cod, a.item, (d) => {
-      if (t.dataset.campo === 'obs') d.obs = t.value;
-      else d.links = t.value.split('\n').map((l) => l.trim()).filter(Boolean);
-    }, false);
+    if (!a || t.dataset.campo !== 'obs') return;
+    editar(a.cod, a.item, (d) => { d.obs = t.value; }, false);
+  });
+
+  // novo link: Enter adiciona; colar vários (um por linha) adiciona todos de uma vez
+  lista.addEventListener('keydown', (e) => {
+    const a = alvo(e.target);
+    if (!a || e.target.dataset.campo !== 'novo-link' || e.key !== 'Enter') return;
+    e.preventDefault();
+    adicionarLinks(a.cod, a.item, e.target.value);
+  });
+  lista.addEventListener('paste', (e) => {
+    const a = alvo(e.target), texto = e.clipboardData?.getData('text') || '';
+    if (!a || e.target.dataset.campo !== 'novo-link' || !/\s/.test(texto.trim())) return;
+    e.preventDefault();
+    adicionarLinks(a.cod, a.item, texto);
   });
 
   lista.addEventListener('click', (e) => {
@@ -732,7 +796,12 @@ function ligar() {
     if (!a) return;
     const acao = b.dataset.acao;
     if (acao === 'escolher') b.parentElement.querySelector('input[type=file]').click();
-    if (acao === 'salvar') salvarItem(a.cod, a.item);
+    if (acao === 'salvar') {
+      // link digitado sem clicar em "Adicionar link" também vai junto
+      const pendente = b.closest('[data-item]').querySelector('[data-campo="novo-link"]')?.value;
+      if (pendente?.trim()) adicionarLinks(a.cod, a.item, pendente);
+      salvarItem(a.cod, a.item);
+    }
     if (acao === 'descartar') { descartar(a.cod, a.item); renderCard(a.cod); }
     if (acao === 'remover') {
       const { nome, estado } = b.dataset;
@@ -742,6 +811,9 @@ function ligar() {
         else rasc.remover.add(nome);
       });
     }
+    if (acao === 'add-link') adicionarLinks(a.cod, a.item, b.closest('.add-link').querySelector('input').value);
+    if (acao === 'tirar-link') editar(a.cod, a.item, (d) => { d.links = d.links.filter((u) => u !== b.dataset.url); });
+    if (acao === 'manter-link') editar(a.cod, a.item, (d) => { if (!d.links.includes(b.dataset.url)) d.links.push(b.dataset.url); });
   });
 
   for (const ev of ['dragover', 'dragleave', 'drop']) {
@@ -768,7 +840,9 @@ function ligar() {
   $('#ev-busca').addEventListener('input', () => atualizarTabelaEv());
   $('#ev-dim').addEventListener('change', () => atualizarTabelaEv());
   $('#ev-pessoa').addEventListener('change', () => atualizarTabelaEv());
-  $('#ev-linhas').addEventListener('click', (e) => {
+  $('#ev-linhas').addEventListener('click', async (e) => {
+    const lixo = e.target.closest('[data-remover-ev]');
+    if (lixo) return removerDaTabela(est.evVistos[+lixo.dataset.removerEv]);
     const b = e.target.closest('[data-abrir]');
     if (!b) return;
     const { dim } = achar(b.dataset.abrir);

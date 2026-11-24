@@ -231,6 +231,13 @@ fieldset.opcoes { border: 0; padding: 0; margin: 0 0 8px; }
 }
 .lixeira:hover:not(:disabled) { background: #fdecee; border-color: #f4c2ca; color: var(--bi-danger); }
 .lixeira:focus-visible { outline-color: var(--bi-danger); }
+.arquivos li a.nome-arq { color: var(--ds-color-primary-600); font-weight: 500; }
+.arquivos li.remover a.nome-arq { color: var(--bi-fg-subdued); }
+.campo .arquivos { margin-bottom: 8px; }
+.add-link { display: grid; gap: 8px; }
+.evid + .campo { display: block; margin-top: 16px; }
+.tabela-ev .ev-acoes { display: flex; gap: 4px; align-items: center; }
+@media (min-width: 640px) { .add-link { grid-template-columns: minmax(0, 1fr) auto; } }
 .arquivos li small { display: block; color: var(--bi-fg-subdued); font-size: .8125rem; }
 .arquivos li.novo .nome-arq { color: var(--ds-color-primary-600); font-weight: 600; }
 .arquivos li.remover .nome-arq { text-decoration: line-through; color: var(--bi-fg-subdued); }

@@ -23,7 +23,9 @@ escolhida por quem usa.
    não geram aviso. Enquanto você digita num campo, a conferência espera a próxima rodada. O botão **Atualizar**
    continua para quem não quer esperar.
 3. Informe seu nome uma vez. Ele fica registrado em cada alteração.
-4. Abra um indicador, marque o que o Estado atende e anexe arquivos ou cole links.
+4. Abra um indicador, marque o que o Estado atende e anexe arquivos ou adicione links (cole no campo e clique em
+   **Adicionar link** ou tecle Enter; colar vários de uma vez, um por linha, adiciona todos).
+   Para remover um anexo ou link, clique na **lixeira vermelha** ao lado dele. Antes de salvar, **Manter** desfaz.
 5. Cada item tem o próprio botão **Salvar**: o bloco "Evidências do indicador" (anexos, links e observação do
    indicador) e cada qualificador (1.1a, 1.1b…).
    O botão aparece quando o item muda e grava só aquele item. Até lá nada vai para a pasta: o indicador mostra o selo
@@ -79,6 +81,8 @@ escolhida por quem usa.
 O botão **Evidências enviadas**, no topo da barra lateral, mostra numa só tabela todos os arquivos e links do ano:
 indicador, qualificador, evidência (o arquivo baixa ao clicar; o link abre em outra aba), quem enviou e quando (lidos do
 log). Dá para buscar por texto e filtrar por dimensão e por pessoa. **Abrir indicador** leva direto à aba dele.
+A **lixeira vermelha** remove na hora, depois de confirmar: o arquivo vai para o `_backup` e o ato entra no log. Se o
+item tiver alteração não salva no indicador, a página pede para salvar ou descartar antes.
 Arquivo copiado para a pasta pelo Windows, sem passar pelo painel, aparece como "sem registro" em "Enviado por".
 
 ### Segurança do servidor local
