@@ -101,6 +101,11 @@ input[type=radio] { width: 20px; height: 20px; accent-color: var(--ds-color-prim
 .barra { display: flex; height: 6px; background: var(--bi-border); border-radius: 3px; overflow: hidden; margin-top: 6px; }
 .barra i.ok { background: var(--bi-success); }
 .barra i.parcial { background: var(--ds-color-info); }
+.nav-evid {
+  display: block; width: calc(100% - 32px); margin: 16px 16px 0; text-align: left;
+  background: var(--ds-color-background); color: var(--ds-color-primary-600);
+}
+.nav-evid[aria-current="true"] { background: var(--ds-color-primary-600); color: var(--ds-color-text-inverse); }
 .sidebar-filtros { padding: 16px; border-top: 1px solid var(--bi-border); display: grid; gap: 8px; }
 .rotulo { font-weight: 700; font-size: .875rem; color: var(--bi-fg-accent); }
 .checa { display: flex; gap: 8px; align-items: flex-start; font-size: .9375rem; cursor: pointer; margin-top: 8px; }
@@ -137,6 +142,20 @@ input[type=radio] { width: 20px; height: 20px; accent-color: var(--ds-color-prim
 .cab-dim { margin-bottom: 16px; }
 .cab-dim h2 { font: 400 1.5rem/1.25 var(--ds-font-family-body); color: var(--bi-fg-accent); }
 
+/* tela "Evidências enviadas" (DataTable do bi-setdig) */
+.filtros-ev { display: grid; gap: 8px; margin-bottom: 16px; }
+.tabela-rolagem { position: relative; /* prende o .sr da tabela; sem isso ele estica a página no celular */ min-width: 0; overflow-x: auto; background: var(--ds-color-background); border: 1px solid var(--bi-border); border-radius: var(--ds-radius-md); }
+.tabela-ev { width: 100%; min-width: 760px; border-collapse: collapse; font-size: .9375rem; }
+.tabela-ev th { text-align: left; padding: 12px; color: var(--bi-fg-accent); font-weight: 800; border-bottom: 1px solid var(--bi-border); background: var(--bi-bg-subdued); }
+.tabela-ev td { padding: 10px 12px; border-bottom: 1px solid var(--bi-border); vertical-align: top; }
+.tabela-ev tr:last-child td { border-bottom: 0; }
+.tabela-ev tbody tr:hover { background: var(--bi-bg-subdued); }
+.tabela-ev small { display: block; margin-top: 2px; font-size: .8125rem; }
+.tabela-ev .ev-nome { max-width: 28rem; overflow-wrap: anywhere; }
+.tabela-ev a { color: var(--ds-color-primary-600); font-weight: 600; }
+.tabela-ev button { min-height: 32px; padding: 0 10px; font-size: .875rem; white-space: nowrap; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
 /* abas de indicador (bi-tabs do bi-setdig) */
 .bi-tabs { display: flex; gap: 4px; overflow-x: auto; max-width: 100%; margin-bottom: 16px; border-bottom: 1px solid var(--bi-border); }
 .bi-tab {
@@ -151,6 +170,7 @@ input[type=radio] { width: 20px; height: 20px; accent-color: var(--ds-color-prim
 .ponto { width: 10px; height: 10px; border-radius: 50%; background: var(--ds-color-border); flex: none; }
 .ponto.parcial { background: var(--ds-color-info); }
 .ponto.ok { background: var(--bi-success); }
+.ponto.isento { background: var(--ds-color-background); border: 2px solid var(--bi-fg-subdued); }
 .ponto.rascunho { box-shadow: 0 0 0 2px var(--ds-color-background), 0 0 0 4px var(--ds-color-primary-600); }
 
 /* painel do indicador (DashboardSection) */
@@ -169,6 +189,7 @@ input[type=radio] { width: 20px; height: 20px; accent-color: var(--ds-color-prim
 .selo { display: inline-flex; align-items: center; min-height: 26px; padding: 2px 10px; border-radius: var(--ds-radius-huge, 999px); font-size: .8125rem; font-weight: 700;
   background: var(--bi-bg-normal); color: var(--bi-fg-subdued); }
 .selo.ok { background: #e3f3ee; color: var(--bi-success); }
+.selo.isento { background: var(--ds-color-background); color: var(--bi-fg-subdued); border: 1px solid var(--bi-border); }
 .selo.parcial { background: #e7f3fe; color: #0b5c94; }
 .selo.falta { background: #fff2df; color: var(--bi-warning); }
 .selo.rascunho { background: var(--ds-color-primary-100); color: var(--ds-color-primary-600); }
@@ -216,7 +237,8 @@ fieldset.opcoes { border: 0; padding: 0; margin: 0 0 8px; }
 
 /* ---------- telas maiores: só acrescenta ---------- */
 @media (min-width: 640px) {
-  .resumo { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .resumo { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .filtros-ev { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
   .ind-cab { grid-template-columns: auto minmax(0, 1fr) auto; }
   .selos { grid-column: auto; flex-direction: column; align-items: flex-end; }
 }
@@ -227,4 +249,7 @@ fieldset.opcoes { border: 0; padding: 0; margin: 0 0 8px; }
   .topbar { padding: 12px 24px; }
   .principal { padding: 24px; }
   .bi-display { font-size: 2.25rem; }
+}
+@media (min-width: 1200px) {
+  .resumo { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
